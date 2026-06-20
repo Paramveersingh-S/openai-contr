@@ -221,32 +221,25 @@ class JEPAModel(nn.Module):
         self.args      = a
         self.encoder   = ContextEncoder(a)
         self.predictor = JEPAPredictor(a.d_model)
-        # Target encoder = EMA copy, registered as a buffer-like structure
-        # (not an nn.Module so it doesn't appear in self.parameters())
-        self._target_enc_state = None
+        self.target_encoder = None
 
     def init_target_encoder(self):
-        """Copy encoder weights → target encoder state dict (no grad)."""
-        self._target_enc_state = copy.deepcopy(self.encoder.state_dict())
+        """Copy encoder weights → target encoder."""
+        import copy
+        self.target_encoder = copy.deepcopy(self.encoder)
+        for p in self.target_encoder.parameters():
+            p.requires_grad = False
 
     @torch.no_grad()
     def update_ema(self, tau: float):
         """EMA update: θ_target ← τ*θ_target + (1-τ)*θ_encoder"""
-        enc_sd = self.encoder.state_dict()
-        for key in self._target_enc_state:
-            self._target_enc_state[key] = (
-                tau * self._target_enc_state[key].float()
-                + (1 - tau) * enc_sd[key].float()
-            ).to(enc_sd[key].dtype)
+        for tp, ep in zip(self.target_encoder.parameters(), self.encoder.parameters()):
+            tp.data.copy_(tau * tp.data + (1.0 - tau) * ep.data)
 
     def target_encode(self, tokens):
         """Run target encoder (EMA weights) without gradient."""
-        # Temporarily load EMA weights into encoder, run forward, restore
-        enc_sd_backup = copy.deepcopy(self.encoder.state_dict())
-        self.encoder.load_state_dict(self._target_enc_state)
         with torch.no_grad():
-            out = self.encoder(tokens, causal=False).mean(dim=1)  # mean-pool
-        self.encoder.load_state_dict(enc_sd_backup)
+            out = self.target_encoder(tokens, causal=False).mean(dim=1)  # mean-pool
         return out  # (B, d_model)
 
     def forward(self, tokens):
@@ -264,8 +257,9 @@ class JEPAModel(nn.Module):
         # ── Split context / target spans ──────────────────────────────────
         # Context: tokens[:, :ctx_end]
         # Target:  tokens[:, tgt_start : tgt_start + jepa_target_len]
+        import random
         ctx_end   = max(T // 2, T - a.jepa_target_len - a.jepa_offset_max - 1)
-        offset    = torch.randint(a.jepa_offset_min, a.jepa_offset_max + 1, (1,)).item()
+        offset    = random.randint(a.jepa_offset_min, a.jepa_offset_max)
         tgt_start = ctx_end + offset
         tgt_end   = min(tgt_start + a.jepa_target_len, T)
 
