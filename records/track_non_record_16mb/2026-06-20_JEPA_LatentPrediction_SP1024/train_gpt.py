@@ -378,8 +378,7 @@ def finetune_decoder_head(model, calib_loader, args, device):
         pass  # encoder is frozen during head fine-tune
 
     for step in range(args.decoder_steps):
-        tokens = calib_loader.next_batch(args.batch_tokens // world_size
-                                         ).to(device)
+        tokens = calib_loader.next_batch(16 * args.train_seq_len).to(device)
         with torch.no_grad():
             h = model.encoder(tokens, causal=True)       # (B, T, D)
         # Shift: predict token t+1 from hidden at t
@@ -403,12 +402,11 @@ def finetune_decoder_head(model, calib_loader, args, device):
 def validate(model, decoder_head, val_loader, tokenizer, args, device):
     model.eval()
     total_lp, total_tok = 0.0, 0
-    # Process all validation tokens in one pass
-    while True:
-        try:
-            tokens = val_loader.next_batch(args.val_batch // world_size).to(device)
-        except StopIteration:
-            break
+    # Process validation tokens in chunks to avoid OOM
+    val_tokens_to_process = args.val_batch // world_size
+    chunk_size = 16 * args.train_seq_len
+    for _ in range(max(1, val_tokens_to_process // chunk_size)):
+        tokens = val_loader.next_batch(chunk_size).to(device)
         h      = model.encoder(tokens, causal=True)      # (B, T, D)
         logits = decoder_head(h[:, :-1, :])              # (B, T-1, V)
         labels = tokens[:, 1:]                            # (B, T-1)
@@ -417,7 +415,6 @@ def validate(model, decoder_head, val_loader, tokenizer, args, device):
                                    reduction="sum").item()
         total_lp  += lp
         total_tok += labels.numel()
-        break  # single pass for speed
 
     # Gather across ranks
     t = torch.tensor([total_lp, total_tok], device=device)
@@ -512,14 +509,25 @@ def main():
         # EMA momentum schedule
         ema_tau = a.ema_start + (a.ema_end - a.ema_start) * (step / a.iterations)
 
-        # Forward pass
-        tokens = train_loader.next_batch(a.batch_tokens // world_size).to(device)
-        with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-            out = model(tokens)
-        loss = out["loss"]
+        # Forward pass with Gradient Accumulation to prevent OOM
+        micro_batch_size = 16
+        grad_accum_steps = (a.batch_tokens // world_size) // (micro_batch_size * a.train_seq_len)
+        if grad_accum_steps == 0:
+            grad_accum_steps = 1
+            micro_batch_size = (a.batch_tokens // world_size) // a.train_seq_len
 
-        # Backward
-        loss.backward()
+        total_loss, total_jepa, total_mlm = 0.0, 0.0, 0.0
+        for micro_step in range(grad_accum_steps):
+            tokens = train_loader.next_batch(micro_batch_size * a.train_seq_len).to(device)
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16):
+                out = model(tokens)
+            loss = out["loss"] / grad_accum_steps
+            loss.backward()
+            
+            total_loss += loss.item()
+            total_jepa += out["jepa_loss"].item() / grad_accum_steps
+            total_mlm += out["mlm_loss"].item() / grad_accum_steps if isinstance(out["mlm_loss"], torch.Tensor) else out["mlm_loss"] / grad_accum_steps
+
         torch.nn.utils.clip_grad_norm_(
             [p for p in model.parameters() if p.requires_grad], a.grad_clip)
         opt.step(); opt.zero_grad()
@@ -529,12 +537,9 @@ def main():
 
         # Logging
         if master and (step % a.log_every == 0):
-            j  = out["jepa_loss"].item()
-            m  = out["mlm_loss"].item() if isinstance(out["mlm_loss"], torch.Tensor) \
-                 else out["mlm_loss"]
             elapsed = time.time() - t0
             print(f"step:{step:6d}  lr:{lr:.4e}  "
-                  f"jepa:{j:.4f}  mlm:{m:.4f}  total:{loss.item():.4f}  "
+                  f"jepa:{total_jepa:.4f}  mlm:{total_mlm:.4f}  total:{total_loss:.4f}  "
                   f"ema_tau:{ema_tau:.5f}  t:{elapsed:.0f}s")
 
     # ── Final evaluation ───────────────────────────────────────────────────
