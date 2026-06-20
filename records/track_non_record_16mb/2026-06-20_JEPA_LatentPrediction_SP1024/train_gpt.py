@@ -311,16 +311,19 @@ class ShardLoader:
     def __init__(self, data_path, split, seq_len, rank, world):
         self.seq_len = seq_len
         pattern = "train_" if split == "train" else "val_"
-        shards  = sorted(Path(data_path).glob(f"{pattern}*.npy"))
-        assert shards, f"No shards matching {pattern}*.npy in {data_path}"
+        shards  = sorted(Path(data_path).glob(f"*{pattern}*.bin"))
+        assert shards, f"No shards matching *{pattern}*.bin in {data_path}"
         # Interleave shards across ranks
         self.shards = [s for i, s in enumerate(shards) if i % world == rank]
         self.sidx, self.pos = 0, 0
         self._load()
 
     def _load(self):
-        self.data = np.load(self.shards[self.sidx % len(self.shards)],
-                            mmap_mode="r")
+        file = self.shards[self.sidx % len(self.shards)]
+        header_bytes = 256 * np.dtype("<i4").itemsize
+        header = np.fromfile(file, dtype="<i4", count=256)
+        num_tokens = int(header[2])
+        self.data = np.fromfile(file, dtype="<u2", count=num_tokens, offset=header_bytes)
         self.sidx += 1
 
     def next_batch(self, n_tokens):
