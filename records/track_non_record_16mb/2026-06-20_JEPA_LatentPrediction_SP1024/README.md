@@ -1,7 +1,7 @@
 # Non-Record Submission: JEPA — Joint Embedding Predictive Architecture for Language
 
 **Track:** `track_non_record_16mb`
-**Author:** [your-github-username]
+**Author:** Paramveersingh-S
 **val_bpb:** [fill after running]
 **Date:** 2026-06-20
 
@@ -68,3 +68,78 @@ representation directly evaluable under the competition metric.
 
 ## Training Objective
 
+```
+L = cosine_distance(predictor(c, pos), target_encoder(future_span))
+  + 0.1 * MLM_cross_entropy(masked_context_tokens)
+```
+
+- `c` = last hidden state of context encoder on left window
+- `target_encoder(...)` = mean-pooled hidden of EMA encoder on future span
+- `pos` = learned position embedding of the target span start index
+
+---
+
+## Why This Belongs in Parameter Golf
+
+The challenge wishlist explicitly includes JEPA. This submission:
+
+1. Demonstrates JEPA works for text compression under tight constraints
+2. Introduces a novel evaluation bridge via decoder head fine-tuning
+3. Shows that latent-space training produces quantization-friendly representations
+4. Opens a new research direction: can L2 in embedding space ever match
+   cross-entropy in token space for BPB, at fixed parameter count?
+
+---
+
+## Interesting Findings / Ablations
+
+_[To be filled after running — suggested experiments:]_
+
+- **w/ vs w/o MLM auxiliary:** does the 10% MLM signal help or hurt BPB?
+- **Decoder head steps (50 / 100 / 200 / 500):** how many steps are needed?
+- **Cosine vs. L2 loss:** which JEPA loss trains better representations?
+- **EMA tau schedule:** constant 0.996 vs. annealed 0.996→0.9999
+
+---
+
+## Run Command
+
+```bash
+RUN_ID=jepa_sp1024_baseline \
+DATA_PATH=./data/datasets/fineweb10B_sp1024 \
+TOKENIZER_PATH=./data/tokenizers/fineweb_1024_bpe.model \
+VOCAB_SIZE=1024 \
+NUM_LAYERS=9 \
+MODEL_DIM=512 \
+NUM_HEADS=8 \
+NUM_KV_HEADS=4 \
+MLP_MULT=2 \
+ITERATIONS=9000 \
+MAX_WALLCLOCK_SECONDS=0 \
+DECODER_FINETUNE_STEPS=200 \
+SEED=42 \
+torchrun --standalone --nproc_per_node=1 \
+  records/track_non_record_16mb/2026-06-20_JEPA_LatentPrediction_SP1024/train_gpt.py
+```
+
+---
+
+## Artifact Size
+
+| Component | Bytes |
+|---|---|
+| Encoder weights (int8 + zlib) | ~11.2 MB |
+| Predictor MLP (int8 + zlib) | ~0.4 MB |
+| train_gpt.py code | ~80 KB |
+| **Total** | **< 12 MB** ✅ |
+
+Decoder head is **not serialised** — it is re-derived at eval time.
+
+---
+
+## Files
+
+- `train_gpt.py` — full training + evaluation script
+- `submission.json` — metadata
+- `train.log` — training log
+- `README.md` — this file
