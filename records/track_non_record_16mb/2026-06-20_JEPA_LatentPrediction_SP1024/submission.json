@@ -1,0 +1,24 @@
+{
+  "author": "YOUR_GITHUB_USERNAME",
+  "author_github": "YOUR_GITHUB_USERNAME",
+  "val_bpb": 0.0,
+  "date": "2026-06-20",
+  "track": "non_record",
+  "notes": "First JEPA (Joint Embedding Predictive Architecture) submission to parameter-golf. Trains in latent embedding space rather than token space. Novel architecture with EMA target encoder and lightweight MLP predictor. Includes 200-step decoder head fine-tuning bridge for BPB evaluation.",
+  "architecture": {
+    "n_layers": 9,
+    "d_model": 512,
+    "n_heads": 8,
+    "n_kv_heads": 4,
+    "mlp_mult": 2,
+    "vocab_size": 1024,
+    "predictor": "MLP(576->256->512)",
+    "ema_tau_range": [0.996, 0.9999],
+    "jepa_target_len": 64,
+    "mlm_aux_weight": 0.1,
+    "decoder_finetune_steps": 200
+  },
+  "artifact_size_bytes": 0,
+  "hardware": "8x NVIDIA H100 SXM 80GB",
+  "training_time_seconds": 0
+}
