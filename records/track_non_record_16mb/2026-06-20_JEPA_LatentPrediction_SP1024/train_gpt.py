@@ -372,7 +372,7 @@ def finetune_decoder_head(model, calib_loader, args, device):
         pass  # encoder is frozen during head fine-tune
 
     for step in range(args.decoder_steps):
-        tokens = calib_loader.next_batch(16 * args.train_seq_len).to(device)
+        tokens = calib_loader.next_batch(4 * args.train_seq_len).to(device)
         with torch.no_grad():
             h = model.encoder(tokens, causal=True)       # (B, T, D)
         # Shift: predict token t+1 from hidden at t
@@ -398,7 +398,7 @@ def validate(model, decoder_head, val_loader, tokenizer, args, device):
     total_lp, total_tok = 0.0, 0
     # Process validation tokens in chunks to avoid OOM
     val_tokens_to_process = args.val_batch // world_size
-    chunk_size = 16 * args.train_seq_len
+    chunk_size = 4 * args.train_seq_len
     for _ in range(max(1, val_tokens_to_process // chunk_size)):
         tokens = val_loader.next_batch(chunk_size).to(device)
         h      = model.encoder(tokens, causal=True)      # (B, T, D)
@@ -504,7 +504,7 @@ def main():
         ema_tau = a.ema_start + (a.ema_end - a.ema_start) * (step / a.iterations)
 
         # Forward pass with Gradient Accumulation to prevent OOM
-        micro_batch_size = 16
+        micro_batch_size = 4
         grad_accum_steps = (a.batch_tokens // world_size) // (micro_batch_size * a.train_seq_len)
         if grad_accum_steps == 0:
             grad_accum_steps = 1
