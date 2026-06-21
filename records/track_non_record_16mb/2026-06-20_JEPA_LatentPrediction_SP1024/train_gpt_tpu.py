@@ -14,6 +14,11 @@ import torch.nn.functional as F
 from dataclasses import dataclass
 from pathlib import Path
 
+# --- Sanitize Colab Environment for TPU v5e ---
+# Colab sometimes sets legacy multi-host environment variables that crash PJRT on a single-host TPU v5e
+for k in ['TPU_NAME', 'TPU_MESH_CONTROLLER_ADDRESS', 'TPU_MESH_CONTROLLER_PORT', 'COLAB_TPU_ADDR']:
+    os.environ.pop(k, None)
+
 # --- PyTorch XLA imports ---
 import torch_xla
 import torch_xla.core.xla_model as xm
