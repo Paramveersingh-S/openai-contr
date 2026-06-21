@@ -474,5 +474,5 @@ def _mp_fn(index):
     # Use GPU run for final artifact generation.
 
 if __name__ == "__main__":
-    # Launch on 8 TPU cores
-    xmp.spawn(_mp_fn, args=(), nprocs=8, start_method='fork')
+    # Launch on available TPU cores automatically
+    xmp.spawn(_mp_fn, args=(), nprocs=None, start_method='fork')
