@@ -24,7 +24,7 @@ $$ L = 1 - \text{cosine\_similarity}(Predictor(c, pos), TargetEncoder(future\_sp
 This repository is optimized to be cloned and run directly in Google Colab.
 
 ### Step 1: Open Colab and Clone
-Create a new notebook in Google Colab. Ensure you are using a GPU runtime (`Runtime` -> `Change runtime type` -> `T4 GPU` or better).
+Create a new notebook in Google Colab. Go to `Runtime` -> `Change runtime type` and select either **T4 GPU** (Standard) or **TPU v2** (Faster).
 
 Run the following in a cell to clone this repository:
 ```bash
@@ -45,7 +45,9 @@ The script relies on the preprocessed FineWeb dataset provided by the parameter-
 ```
 
 ### Step 4: Train the Model
-Launch the training run. Adjust `--nproc_per_node=1` depending on the number of GPUs your Colab instance has (usually 1).
+
+#### Option A: GPU (Standard)
+Launch the training run using `torchrun`.
 
 ```bash
 !RUN_ID=jepa_sp1024_run1 \
@@ -58,6 +60,26 @@ SEED=42 \
 torchrun --standalone --nproc_per_node=1 \
   records/track_non_record_16mb/2026-06-20_JEPA_LatentPrediction_SP1024/train_gpt.py \
   2>&1 | tee records/track_non_record_16mb/2026-06-20_JEPA_LatentPrediction_SP1024/train.log
+```
+
+#### Option B: TPU (Faster, ~8x Speedup)
+If you selected the **TPU v2** runtime, install PyTorch XLA first:
+```bash
+!pip install torch~=2.3.0 torch_xla[tpu]~=2.3.0 -f https://storage.googleapis.com/libtpu-releases/index.html
+```
+
+Then run the specialized TPU script using standard `python`. XLA will automatically distribute the work across all 8 TPU cores:
+```bash
+!XLA_USE_BF16=1 \
+RUN_ID=jepa_sp1024_run1 \
+DATA_PATH=./data/datasets/fineweb10B_sp1024 \
+TOKENIZER_PATH=./data/tokenizers/fineweb_1024_bpe.model \
+VOCAB_SIZE=1024 \
+NUM_LAYERS=9 MODEL_DIM=512 NUM_HEADS=8 NUM_KV_HEADS=4 MLP_MULT=2 \
+ITERATIONS=9000 MAX_WALLCLOCK_SECONDS=0 DECODER_FINETUNE_STEPS=200 \
+SEED=42 \
+python records/track_non_record_16mb/2026-06-20_JEPA_LatentPrediction_SP1024/train_gpt_tpu.py \
+  2>&1 | tee records/track_non_record_16mb/2026-06-20_JEPA_LatentPrediction_SP1024/train_tpu.log
 ```
 
 ### Step 5: Extract Metrics
