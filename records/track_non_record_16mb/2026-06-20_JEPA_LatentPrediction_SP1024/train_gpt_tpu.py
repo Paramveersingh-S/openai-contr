@@ -398,10 +398,18 @@ def _mp_fn(index):
     t0 = time.time()
     
     torch.manual_seed(a.seed + index)
-    device = xm.xla_device()
-    rank = xm.get_ordinal()
-    world_size = xm.xrt_world_size()
-    master = xm.is_master_ordinal(local=False)
+    import torch_xla.runtime as xr
+    # Modern PyTorch XLA initialization
+    device = torch_xla.device()
+    try:
+        rank = xr.global_ordinal()
+        world_size = xr.world_size()
+        master = (rank == 0)
+    except AttributeError:
+        # Fallback for older torch_xla versions
+        rank = xm.get_ordinal()
+        world_size = xm.xrt_world_size()
+        master = xm.is_master_ordinal(local=False)
 
     train_loader = ShardLoader(a.data_path, "train", a.train_seq_len, rank, world_size)
     calib_loader = ShardLoader(a.data_path, "train", a.train_seq_len, rank, world_size)
