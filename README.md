@@ -63,9 +63,9 @@ torchrun --standalone --nproc_per_node=1 \
 ```
 
 #### Option B: TPU (Faster, ~8x Speedup)
-If you selected the **TPU v2** runtime, install PyTorch XLA first:
+If you selected the **TPU v2** (or v5e) runtime, install PyTorch XLA first:
 ```bash
-!pip install torch~=2.3.0 torch_xla[tpu]~=2.3.0 -f https://storage.googleapis.com/libtpu-releases/index.html
+!pip install torch_xla[tpu] -f https://storage.googleapis.com/libtpu-releases/index.html
 ```
 
 Then run the specialized TPU script using standard `python`. XLA will automatically distribute the work across all 8 TPU cores:
