@@ -19,6 +19,13 @@ from pathlib import Path
 for k in ['TPU_NAME', 'TPU_MESH_CONTROLLER_ADDRESS', 'TPU_MESH_CONTROLLER_PORT', 'COLAB_TPU_ADDR']:
     os.environ.pop(k, None)
 
+# Remove problematic Colab-injected XLA flags that force a 4-host pod topology on a 1-host v5e
+for env_key in ['XLA_FLAGS', 'TF_XLA_FLAGS']:
+    if env_key in os.environ:
+        flags = os.environ[env_key].split()
+        flags = [f for f in flags if 'slice_builder_worker_addresses' not in f]
+        os.environ[env_key] = ' '.join(flags)
+
 # --- PyTorch XLA imports ---
 import torch_xla
 import torch_xla.core.xla_model as xm
@@ -479,5 +486,18 @@ def _mp_fn(index):
     # Use GPU run for final artifact generation.
 
 if __name__ == "__main__":
-    # Launch on available TPU cores automatically
-    xmp.spawn(_mp_fn, args=(), nprocs=None, start_method='fork')
+    try:
+        # Check how many devices are available before spawning
+        devices = xm.get_xla_supported_devices()
+        num_devices = len(devices)
+    except Exception as e:
+        print(f"Warning: Failed to detect XLA devices automatically ({e}). Defaulting to 1 core.")
+        num_devices = 1
+
+    if num_devices > 1:
+        # Launch on available TPU cores automatically (e.g., 8 on TPU v2)
+        xmp.spawn(_mp_fn, args=(), nprocs=num_devices, start_method='fork')
+    else:
+        # Bypass xmp.spawn completely on single-core TPUs like Colab v5e-1
+        print("Detected single-core TPU (or initialization failed). Running directly on main thread.")
+        _mp_fn(0)
